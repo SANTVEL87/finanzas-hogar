@@ -2008,16 +2008,14 @@ function getMesKey() {
 }
 
 function getGastosMesSeleccionado() {
-  // Si es mes actual → datos en vivo de gastos[]
-  if(esMesActual()) {
-    return gastos.filter(g => {
-      const d = new Date(g.fecha+'T12:00:00');
-      return d.getMonth()+1 === selMes && d.getFullYear() === selAnio;
-    });
-  }
-  // Si es mes archivado → datos del historial
+  // Primero revisar si el mes está liquidado en el historial
   const arch = historial.find(m => m.key === getMesKey());
-  return arch ? arch.gastos : [];
+  if(arch) return arch.gastos;
+  // Si no está liquidado, buscar en gastos[] activos (funciona para mes actual y meses anteriores sin liquidar)
+  return gastos.filter(g => {
+    const d = new Date(g.fecha+'T12:00:00');
+    return d.getMonth()+1 === selMes && d.getFullYear() === selAnio;
+  });
 }
 
 // ── CHIP DE ESTADO EN TOPBAR ──────────────────────────
@@ -2479,4 +2477,4 @@ setTimeout(()=>{
 }, 5500);
 </script>
 </body>
-</html>     
+</html>    
