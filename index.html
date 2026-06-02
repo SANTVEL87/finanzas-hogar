@@ -835,6 +835,16 @@ window._fb = {
       callback(gs);
     });
   },
+  listenHistorial: (callback) => {
+    return onSnapshot(collection(db, 'historial'), (snap) => {
+      const hs = [];
+      snap.forEach(d => hs.push(d.data()));
+      callback(hs);
+    });
+  },
+  saveHistorialMes: async (mes) => {
+    await setDoc(doc(db, 'historial', mes.key), mes);
+  },
   listenNotifs: (userId, callback) => {
     return onSnapshot(collection(db, 'notificaciones'), (snap) => {
       snap.docChanges().forEach(change => {
@@ -1812,7 +1822,6 @@ function setupNotifListener() {
 // ── FIREBASE INIT ─────────────────────────────────────
 function initFirebase() {
   setSyncStatus('loading','Conectando…');
-  // Timeout de seguridad: si en 4s no llegaron datos, modo offline
   const fbTimeout = setTimeout(() => {
     if(gastos.length === 0) {
       setSyncStatus('err','Sin conexión · Modo offline');
@@ -1826,6 +1835,12 @@ function initFirebase() {
       clearTimeout(fbTimeout);
       gastos = gs;
       setSyncStatus('ok','Sincronizado ·');
+      renderAll();
+    });
+    // Escuchar historial en tiempo real — se sincroniza entre dispositivos
+    window._fb.listenHistorial((hs) => {
+      historial = hs;
+      localStorage.setItem('hg3_historial', JSON.stringify(historial));
       renderAll();
     });
     setupNotifListener();
@@ -1962,7 +1977,13 @@ let selAnio = new Date().getFullYear();
 let selMes  = new Date().getMonth() + 1; // 1-12
 
 function loadHist(){try{historial=JSON.parse(localStorage.getItem('hg3_historial')||'[]');}catch(e){historial=[];}}
-function saveHist(){localStorage.setItem('hg3_historial',JSON.stringify(historial));}
+function saveHist(){
+  localStorage.setItem('hg3_historial',JSON.stringify(historial));
+  // Sincronizar cada mes liquidado en Firebase
+  if(window._fbReady && window._fb.saveHistorialMes) {
+    historial.forEach(m => window._fb.saveHistorialMes(m).catch(()=>{}));
+  }
+}
 function mesKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 function mesNombre(key){const[y,m]=key.split('-').map(Number);return MESES_ES[m-1]+' '+y;}
 function destroyChart(id){if(charts[id]){charts[id].destroy();delete charts[id];}}
@@ -2477,4 +2498,4 @@ setTimeout(()=>{
 }, 5500);
 </script>
 </body>
-</html>    
+</html> 
