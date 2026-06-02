@@ -1149,100 +1149,97 @@ function updateMontos() {
 // ── RESUMEN ───────────────────────────────────────────
 function renderResumen() {
   updateMesChip();
-  const gastosDelMes = getGastosMesSeleccionado();
+
   const esActual = esMesActual();
   const arch = historial.find(m => m.key === getMesKey());
 
-  // Decidir qué bloques mostrar
-  const mostrarActual = esActual || (!arch && !esActual); // actual o mes sin datos
-  const mostrarArchivado = !esActual && !!arch;
+  // Gastos del mes seleccionado — busca en activos O en historial
+  const gastosDelMes = getGastosMesSeleccionado();
+  const hayGastos = gastosDelMes.length > 0;
 
-  // Banner liquidar
+  // ── Banner liquidar: visible siempre que haya gastos sin liquidar en ese mes ──
   const banner = document.getElementById('liq-banner');
-  if(esActual && gastosDelMes.length) {
+  if(!arch && hayGastos) {
     banner.style.display = 'flex';
-    document.getElementById('liq-banner-titulo').textContent = '¿Liquidamos '+MESES_ES[selMes-1]+'?';
+    document.getElementById('liq-banner-titulo').textContent = '¿Liquidamos '+MESES_ES[selMes-1]+' '+selAnio+'?';
     document.getElementById('liq-banner-sub').textContent = gastosDelMes.length+' gastos · '+fmt(gastosDelMes.reduce((s,g)=>s+g.monto,0));
   } else {
     banner.style.display = 'none';
   }
 
-  // Pills de período solo en mes actual
-  document.getElementById('period-pills').style.display = esActual ? '' : 'none';
+  // Pills de período: solo en mes actual y no liquidado
+  document.getElementById('period-pills').style.display = (esActual && !arch) ? '' : 'none';
 
-  // Bloques principales (métricas, balance, categoría, tendencia) — solo en mes actual o sin datos
-  ['bloque-tendencia'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.style.display = mostrarActual ? '' : 'none';
-  });
+  // Tendencia: siempre visible cuando hay gastos
+  const bloqueTend = document.getElementById('bloque-tendencia');
+  if(bloqueTend) bloqueTend.style.display = '';
 
-  // Bloque archivado
-  document.getElementById('bloque-archivado').style.display = mostrarArchivado ? 'block' : 'none';
-  if(mostrarArchivado) {
-    // Reset tabs al Resumen
+  // Bloque archivado: solo para meses ya liquidados
+  const bloqueArch = document.getElementById('bloque-archivado');
+  bloqueArch.style.display = arch ? 'block' : 'none';
+
+  // Cards normales: visibles siempre (mes actual, mes pasado sin liquidar, o vacío)
+  const bc = document.getElementById('balance-card');
+  const cc = document.getElementById('cat-card');
+  const mx = document.querySelector('#s-resumen .metrics');
+  if(bc) bc.style.display = arch ? 'none' : '';
+  if(cc) cc.style.display = arch ? 'none' : '';
+  if(mx) mx.style.display = arch ? 'none' : '';
+
+  // Si el mes está liquidado → renderizar detalle archivado y salir
+  if(arch) {
     document.querySelectorAll('.hist-tab').forEach((b,i)=>b.classList.toggle('active',i===0));
     document.getElementById('htab-resumen').style.display = 'block';
     document.getElementById('htab-graficas').style.display = 'none';
     document.getElementById('htab-gastos').style.display = 'none';
     renderDetalleMes(arch);
-    // Ocultar cards normales
-    document.getElementById('balance-card').style.display = 'none';
-    document.getElementById('cat-card').style.display = 'none';
-    document.querySelector('.metrics').style.display = 'none';
+    buildTrend();
     return;
   }
 
-  // Restaurar cards normales si volvemos al mes actual
-  const bc = document.getElementById('balance-card');
-  const cc = document.getElementById('cat-card');
-  const mx = document.querySelector('.metrics');
-  if(bc) bc.style.display = '';
-  if(cc) cc.style.display = '';
-  if(mx) mx.style.display = '';
-
-  // Datos del mes seleccionado (actual o período)
+  // ── Mes no liquidado (actual o anterior con gastos pendientes) ──
+  // Usar gastos del mes seleccionado directamente, sin filtro de período
   const catFilter = document.getElementById('chart-cat-filter')?.value || 'Todas';
-  const pg = esActual ? getPeriodGastos(catFilter) : (catFilter==='Todas' ? gastosDelMes : gastosDelMes.filter(g=>g.categoria===catFilter));
-  const pgAll = esActual ? getPeriodGastos('Todas') : gastosDelMes;
+  const pg    = catFilter==='Todas' ? gastosDelMes : gastosDelMes.filter(g=>g.categoria===catFilter);
+  const pgAll = gastosDelMes;
 
-  const total   = pgAll.reduce((s,g)=>s+g.monto,0);
-  const debeYo  = pgAll.reduce((s,g)=>s+(g.monto*g.pctYo/100),0);
-  const debeElla= pgAll.reduce((s,g)=>s+(g.monto*(100-g.pctYo)/100),0);
+  const total    = pgAll.reduce((s,g)=>s+g.monto,0);
+  const debeP1   = pgAll.reduce((s,g)=>s+(g.monto*g.pctYo/100),0);
+  const debeP2   = pgAll.reduce((s,g)=>s+(g.monto*(100-g.pctYo)/100),0);
+  const pagadoP1 = pgAll.filter(g=>resolveQuien(g.quien)==='p1').reduce((s,g)=>s+g.monto,0);
+  const diff     = pagadoP1 - debeP1;
+  const pctP1    = total>0?Math.round(debeP1/total*100):50;
 
   document.getElementById('m-total').textContent = fmt(total);
-  document.getElementById('m-yo').textContent    = fmt(debeYo);
-  document.getElementById('m-ella').textContent  = fmt(debeElla);
+  document.getElementById('m-yo').textContent    = fmt(debeP1);
+  document.getElementById('m-ella').textContent  = fmt(debeP2);
+  document.getElementById('balance-bar').style.width = pctP1+'%';
+  document.getElementById('pct-yo-lbl').textContent  = 'Santiago '+pctP1+'%';
+  document.getElementById('pct-ella-lbl').textContent = 'Manuela '+(100-pctP1)+'%';
 
-  if(esActual) {
-    const labels={semana:'Esta semana',mes:'Este mes','3m':'Últimos 3 meses',todo:'Todo el historial'};
-    document.getElementById('lbl-period') && (document.getElementById('lbl-period').textContent = labels[activePeriod]);
+  const balEl = document.getElementById('balance-txt');
+  if(!hayGastos) {
+    balEl.textContent = 'Sin gastos registrados en este mes.';
+  } else if(Math.abs(diff)<500) {
+    balEl.innerHTML = '<span style="color:var(--green)">✓ Están al día, todo cuadra.</span>';
+  } else if(diff>0) {
+    balEl.innerHTML = `<span style="color:var(--purple-txt)"><strong>Manuela</strong> le debe <strong>${fmt(diff)}</strong> a <strong>Santiago</strong></span><br><span style="font-size:12px;color:var(--txt2)">Santiago pagó más de lo que le corresponde.</span>`;
+  } else {
+    balEl.innerHTML = `<span style="color:var(--blue-txt)"><strong>Santiago</strong> le debe <strong>${fmt(-diff)}</strong> a <strong>Manuela</strong></span><br><span style="font-size:12px;color:var(--txt2)">Manuela pagó más de lo que le corresponde.</span>`;
   }
 
-  const pagadoP1 = pgAll.filter(g=>resolveQuien(g.quien)==='p1').reduce((s,g)=>s+g.monto,0);
-  const debeP1All = pgAll.reduce((s,g)=>s+(g.monto*g.pctYo/100),0);
-  const pctYo = total>0?Math.round(debeP1All/total*100):50;
-  document.getElementById('balance-bar').style.width=pctYo+'%';
-  document.getElementById('pct-yo-lbl').textContent='Santiago '+pctYo+'%';
-  document.getElementById('pct-ella-lbl').textContent='Manuela '+(100-pctYo)+'%';
-
-  const diff = pagadoP1 - debeP1All;
-  const balEl = document.getElementById('balance-txt');
-  if(total===0) balEl.textContent='Sin gastos en este período.';
-  else if(Math.abs(diff)<500) balEl.innerHTML='<span style="color:var(--green)">✓ Están al día, todo cuadra.</span>';
-  else if(diff>0) balEl.innerHTML=`<span style="color:var(--purple-txt)"><strong>Manuela</strong> le debe <strong>${fmt(diff)}</strong> a <strong>Santiago</strong></span><br><span style="font-size:12px;color:var(--txt2)">Santiago pagó más de lo que le corresponde.</span>`;
-  else balEl.innerHTML=`<span style="color:var(--blue-txt)"><strong>Santiago</strong> le debe <strong>${fmt(-diff)}</strong> a <strong>Manuela</strong></span><br><span style="font-size:12px;color:var(--txt2)">Manuela pagó más de lo que le corresponde.</span>`;
-
+  // Categorías
   const bycat={};
   pg.forEach(g=>{bycat[g.categoria]=(bycat[g.categoria]||0)+g.monto;});
   const sorted=Object.entries(bycat).sort((a,b)=>b[1]-a[1]);
-  const pgTotal = pg.reduce((s,g)=>s+g.monto,0);
-  document.getElementById('cat-list').innerHTML=sorted.map(([c,v])=>`
+  const pgTotal=pg.reduce((s,g)=>s+g.monto,0);
+  document.getElementById('cat-list').innerHTML = sorted.map(([c,v])=>`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <div class="cat-dot" style="background:${CATS[c]?.color||'#888'}"></div>
       <span style="flex:1;font-size:13px">${CATS[c]?.icon||''} ${c}</span>
       <span style="font-size:13px;font-weight:600;font-family:'DM Mono',monospace">${fmt(v)}</span>
       <span style="font-size:11px;color:var(--txt3);width:32px;text-align:right">${pgTotal>0?Math.round(v/pgTotal*100):0}%</span>
-    </div>`).join('') || '<div style="font-size:13px;color:var(--txt3);text-align:center;padding:8px 0">Sin datos para este filtro</div>';
+    </div>`).join('') || '<div style="font-size:13px;color:var(--txt3);text-align:center;padding:8px 0">Sin gastos este mes</div>';
 
   if(charts['chart-cat']){charts['chart-cat'].destroy();delete charts['chart-cat'];}
   const ctx=document.getElementById('chart-cat')?.getContext('2d');
@@ -2091,12 +2088,26 @@ function openLiqModal(){
   const pagadoP1 = gastosEsteMes.filter(g=>resolveQuien(g.quien)==='p1').reduce((s,g)=>s+g.monto,0);
   const debeP1   = gastosEsteMes.reduce((s,g)=>s+(g.monto*g.pctYo/100),0);
   const diff = pagadoP1 - debeP1;
-  const balTxt = Math.abs(diff)<500 ? 'Al día ✓' : diff>0 ? `Manuela le debe ${fmt(diff)} a Santiago` : `Santiago le debe ${fmt(-diff)} a Manuela`;
+  const sigMesNombre = mesNombre((selMes===12?selAnio+1:selAnio)+'-'+String(selMes===12?1:selMes+1).padStart(2,'0'));
+
+  let balTxt, saldoTxt;
+  if(Math.abs(diff)<500){
+    balTxt = 'Al día ✓';
+    saldoTxt = 'No se arrastra ningún saldo.';
+  } else if(diff>0){
+    balTxt = `Manuela le debe ${fmt(diff)} a Santiago`;
+    saldoTxt = `Se añadirá <strong>${fmt(diff)}</strong> a favor de Santiago en ${sigMesNombre}.`;
+  } else {
+    balTxt = `Santiago le debe ${fmt(-diff)} a Manuela`;
+    saldoTxt = `Se añadirá <strong>${fmt(-diff)}</strong> a favor de Manuela en ${sigMesNombre}.`;
+  }
+
   document.getElementById('liq-resumen-preview').innerHTML =
     `<strong>${MESES_ES[selMes-1]} ${selAnio}</strong><br>`+
     `📋 ${gastosEsteMes.length} gastos registrados<br>`+
     `💰 Total: <strong>${fmt(total)}</strong><br>`+
-    `⚖️ Balance: ${balTxt}`;
+    `⚖️ Balance: ${balTxt}<br>`+
+    `<span style="color:var(--amber)">➜ ${saldoTxt}</span>`;
   document.getElementById('liq-modal').classList.add('open');
 }
 function closeLiqModal(){document.getElementById('liq-modal').classList.remove('open');}
@@ -2105,17 +2116,59 @@ function confirmarLiquidacion(){
   const key = getMesKey();
   const gastosEsteMes = getGastosMesSeleccionado();
   if(!gastosEsteMes.length){toast('No hay gastos este mes');closeLiqModal();return;}
-  // Archivar
+
+  // Calcular saldo final del mes
+  const pagadoP1 = gastosEsteMes.filter(g=>resolveQuien(g.quien)==='p1').reduce((s,g)=>s+g.monto,0);
+  const debeP1   = gastosEsteMes.reduce((s,g)=>s+(g.monto*g.pctYo/100),0);
+  const diff     = pagadoP1 - debeP1; // >0 → Manuela le debe a Santiago
+
+  // Archivar mes en historial
   const idx = historial.findIndex(m=>m.key===key);
   if(idx>=0) historial.splice(idx,1);
-  historial.push({key, nombre: mesNombre(key), gastos: gastosEsteMes, fechaCierre: new Date().toISOString()});
+  historial.push({key, nombre:mesNombre(key), gastos:gastosEsteMes, fechaCierre:new Date().toISOString()});
   saveHist();
-  // Quitar de gastos activos
+
+  // Quitar gastos del mes liquidado de la lista activa
   gastos = gastos.filter(g=>{
     const d = new Date(g.fecha+'T12:00:00');
     return !(d.getMonth()+1===selMes && d.getFullYear()===selAnio);
   });
+
+  // Arrastrar saldo al mes siguiente si hay diferencia significativa
+  if(Math.abs(diff) >= 500) {
+    // Calcular fecha del 1er día del mes siguiente
+    const fechaSiguiente = new Date(selAnio, selMes, 1); // selMes es 1-12, new Date(y,m) usa 0-11 entonces selMes sin -1 ya es el siguiente
+    const fechaStr = fechaSiguiente.getFullYear()+'-'+String(fechaSiguiente.getMonth()+1).padStart(2,'0')+'-01';
+    const nombreMesLiq = mesNombre(key);
+
+    // diff > 0 → Santiago pagó más → Manuela le debe → se registra como pagado por Santiago
+    // diff < 0 → Manuela pagó más → Santiago le debe → se registra como pagado por Manuela
+    const saldoGasto = {
+      id: 'saldo_'+key+'_'+Date.now(),
+      desc: 'Saldo anterior · '+nombreMesLiq,
+      monto: Math.abs(diff),
+      fecha: fechaStr,
+      categoria: 'Otro',
+      quien: diff > 0 ? 'yo' : 'ella',   // quien adelantó el dinero
+      pctYo: 0,                            // 100% a cargo de quien debe pagar
+      nota: 'Saldo arrastrado de '+nombreMesLiq,
+      esSaldo: true
+    };
+    // Si diff>0 → Santiago pagó de más → Manuela debe → pctYo=0 (0% Santiago, 100% Manuela)
+    // Si diff<0 → Manuela pagó de más → Santiago debe → pctYo=100 (100% Santiago, 0% Manuela)
+    saldoGasto.pctYo = diff > 0 ? 0 : 100;
+    gastos.push(saldoGasto);
+  }
+
   save();
+
+  // Mover selector al mes siguiente para mostrar el saldo
+  const siguienteMes = selMes === 12 ? 1 : selMes + 1;
+  const siguienteAnio = selMes === 12 ? selAnio + 1 : selAnio;
+  selMes = siguienteMes;
+  selAnio = siguienteAnio;
+  buildSelectores();
+
   closeLiqModal();
   toast('✓ '+mesNombre(key)+' liquidado');
   renderAll();
@@ -2426,4 +2479,4 @@ setTimeout(()=>{
 }, 5500);
 </script>
 </body>
-</html>
+</html>     
